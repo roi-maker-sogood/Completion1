@@ -1,0 +1,365 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+
+    font-family: Arial, Helvetica, sans-serif;
+
+    background: #f5f6fa;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    padding: 20px;
+}
+
+/* Main container */
+
+.auth-page {
+    width: 1150px;
+    max-width: 100%;
+
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+
+    gap: 28px;
+}
+
+/* LEFT SIDE */
+
+.brand-section {
+    background: linear-gradient(
+        135deg,
+        #2800ff,
+        #3b00e8
+    );
+
+    border-radius: 16px;
+
+    padding: 40px 36px;
+
+    color: white;
+
+    min-height: 570px;
+}
+
+.brand-section h1 {
+    margin: 0;
+
+    font-size: 30px;
+    font-weight: 800;
+}
+
+.brand-description {
+    margin-top: 10px;
+
+    color: #caff00;
+
+    font-size: 15px;
+    font-weight: 600;
+
+    max-width: 450px;
+
+    line-height: 1.5;
+}
+
+/* Fake report preview */
+
+.report-preview {
+    margin-top: 32px;
+
+    width: 420px;
+    max-width: 100%;
+
+    background: white;
+
+    border-radius: 10px;
+
+    overflow: hidden;
+
+    color: #111;
+
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.15);
+}
+
+.report-header {
+    height: 74px;
+
+    background: #2410b8;
+
+    padding: 20px;
+
+    color: white;
+
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.report-body {
+    padding: 25px 22px;
+}
+
+.report-body h2 {
+    margin: 0 0 5px;
+
+    font-size: 17px;
+}
+
+.report-month {
+    color: #2300ff;
+
+    font-weight: bold;
+
+    margin-bottom: 18px;
+}
+
+.report-body p {
+    margin: 8px 0;
+
+    font-size: 12px;
+
+    color: #555;
+}
+
+.report-body strong {
+    color: #111;
+}
+
+/* Benefits */
+
+.benefits {
+    margin-top: 30px;
+}
+
+.benefit {
+    display: flex;
+    align-items: center;
+
+    gap: 10px;
+
+    margin-bottom: 17px;
+
+    font-size: 14px;
+}
+
+.check {
+    width: 20px;
+    height: 20px;
+
+    background: #5dff00;
+
+    color: #2410b8;
+
+    border-radius: 50%;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    font-weight: bold;
+
+    flex-shrink: 0;
+}
+
+/* RIGHT SIDE */
+
+.auth-card {
+    background: white;
+
+    border: 1px solid #dfe1e8;
+
+    border-radius: 16px;
+
+    padding: 30px;
+
+    box-shadow:
+        0 5px 20px rgba(0, 0, 0, 0.04);
+}
+
+/* Login / signup switch */
+
+.auth-switch {
+    width: 100%;
+
+    display: flex;
+
+    background: #f2f3f7;
+
+    border-radius: 30px;
+
+    padding: 4px;
+
+    margin-bottom: 32px;
+}
+
+.auth-switch a {
+    flex: 1;
+
+    text-align: center;
+
+    padding: 11px;
+
+    border-radius: 25px;
+
+    text-decoration: none;
+
+    color: #34344a;
+
+    font-size: 14px;
+
+    font-weight: bold;
+}
+
+.auth-switch a.active {
+    background: white;
+
+    color: #2300ff;
+
+    box-shadow:
+        0 2px 7px rgba(0, 0, 0, 0.12);
+}
+
+/* Heading */
+
+.auth-card h2 {
+    margin: 0 0 25px;
+
+    font-size: 22px;
+
+    color: #10101c;
+}
+
+.auth-description {
+    font-size: 13px;
+
+    color: #666;
+
+    line-height: 1.5;
+
+    margin-bottom: 22px;
+}
+
+/* Form */
+
+.form-group {
+    margin-bottom: 18px;
+}
+
+.form-group label {
+    display: block;
+
+    margin-bottom: 7px;
+
+    font-size: 13px;
+
+    font-weight: bold;
+
+    color: #151525;
+}
+
+.form-group input {
+    width: 100%;
+
+    height: 43px;
+
+    padding: 0 13px;
+
+    border: 1px solid #d9dce6;
+
+    border-radius: 7px;
+
+    outline: none;
+
+    font-size: 13px;
+
+    color: #222;
+
+    transition: 0.2s;
+}
+
+.form-group input:focus {
+    border-color: #3b00ff;
+
+    box-shadow:
+        0 0 0 3px rgba(59, 0, 255, 0.08);
+}
+
+/* Main button */
+
+.auth-button {
+    width: 100%;
+
+    height: 45px;
+
+    border: none;
+
+    border-radius: 7px;
+
+    background: #2800ff;
+
+    color: white;
+
+    font-size: 14px;
+
+    font-weight: bold;
+
+    cursor: pointer;
+
+    margin-top: 8px;
+
+    transition: 0.2s;
+}
+
+.auth-button:hover {
+    background: #1e00c7;
+}
+
+/* Bottom link */
+
+.auth-footer {
+    text-align: center;
+
+    margin-top: 22px;
+
+    font-size: 13px;
+
+    color: #666;
+}
+
+.auth-footer a {
+    color: #2800ff;
+
+    font-weight: bold;
+
+    text-decoration: none;
+}
+
+.auth-footer a:hover {
+    text-decoration: underline;
+}
+
+/* Responsive */
+
+@media (max-width: 850px) {
+
+    .auth-page {
+        grid-template-columns: 1fr;
+    }
+
+    .brand-section {
+        display: none;
+    }
+
+    .auth-card {
+        max-width: 500px;
+
+        width: 100%;
+
+        margin: auto;
+    }
+}
