@@ -81,10 +81,16 @@ function blankReport() {
     shootLog: [{ date: '', description: '', link: '' }],
     breakdown: DEFAULT_BREAKDOWN(),
     contact: { viberName: '', viberNumber: '', email: '', website: '', location: '', officePhoto: null },
+    template: null,
   };
 }
 
-const LS_KEYS = { reports: 'jt_reports_v1', defaults: 'jt_defaults_v1', current: 'jt_current_v1' };
+const userStoragePrefix = "jt_user_${Number(window.JT_USER_ID) || 0}";
+const LS_KEYS = {
+  reports: `${userStoragePrefix}_reports_v1`,
+  defaults: `${userStoragePrefix}_defaults_v1`,
+  current: `${userStoragePrefix}_current_v1`,
+};
 function loadJSON(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } }
 function saveJSON(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); return true; }
@@ -98,6 +104,8 @@ let state = {
   activeSection: 'cover',
   zoom: 0.7,
   activePasteSlot: null,
+  templatePages: [],
+  templatePageSize: { width: 794, height: 1123 },
 };
 
 function persistCurrent() { state.current.updatedAt = new Date().toISOString(); saveJSON(LS_KEYS.current, state.current); }
@@ -179,13 +187,35 @@ function renderReportListModal() {
       </span>
     </li>`).join('');
   ul.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); openReport(b.dataset.open); closeModal('#loadModal'); }));
-  ul.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', (e) => {
+  ul.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async (e) => {
     e.stopPropagation();
     if (!confirm('Delete this saved report? This cannot be undone.')) return;
-    state.reports = state.reports.filter(r => r.id !== b.dataset.del);
-    saveJSON(LS_KEYS.reports, state.reports);
-    renderReportListModal(); renderReportList();
-    toast('Report deleted');
+
+    try {
+      const response = await fetch('delete-report.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: b.dataset.del }),
+      });
+      const result = await response.json();
+
+      if (!result.success) {
+        toast('Could not delete draft: ' + (result.message || 'Server error'));
+        return;
+      }
+
+      state.reports = state.reports.filter(r => r.id !== b.dataset.del);
+      saveJSON(LS_KEYS.reports, state.reports);
+      if (state.current.id === b.dataset.del) {
+        state.current = blankReport();
+        persistCurrent();
+      }
+      renderReportListModal(); renderReportList(); renderAll();
+      toast('Report deleted');
+    } catch (error) {
+      console.error('Draft deletion failed:', error);
+      toast('Could not delete draft. Server offline.');
+    }
   }));
 }
 
@@ -772,7 +802,29 @@ function pageContact(d) {
   </div>`;
 }
 
+function templatePageHTML(background, content) {
+  const size = state.templatePageSize;
+  return `<div class="page template-page" style="width:${size.width}px;height:${size.height}px;background-image:url('${background || ''}')">
+    <div class="template-overlay">${content}</div>
+  </div>`;
+}
+
+function templatePagesHTML(d) {
+  const s = d.summary;
+  const c = d.contact;
+  const pages = state.templatePages || [];
+  return [
+    templatePageHTML(pages[0], `<h1>Completion Report</h1><h2>${esc(d.cover.month || '[Month]')} ${esc(d.cover.year || '')}</h2><p>Prepared for: <b>${esc(d.cover.clientName || '—')}</b></p><p>Prepared by: <b>${esc(d.cover.preparedByName || '—')}</b></p>`),
+    templatePageHTML(pages[1], `<h2>Project Completion Report</h2><p><b>${esc(s.contractorName || '—')}</b><br>${esc(s.contractorAddress || '')}</p><h3>${esc(s.projectNames || 'Project name')}</h3><p>${esc(s.projectDescription || 'Project description')}</p><p>Start: ${esc(s.startDate || '—')} &nbsp; Completion: ${esc(s.completionDate || '—')}</p>`),
+    templatePageHTML(pages[2], `<h2>Content Calendar</h2>${imageSlotPreview(d.calendarImages, 'Add content calendar images in the form')}`),
+    templatePageHTML(pages[3], `<h2>Posts / Content</h2>${imageSlotPreview(d.contentImages, 'Add content images in the form')}${imageSlotPreview(d.postsImages, 'Add posted-content images in the form')}<p>${d.postsTable.length} post records</p>`),
+    templatePageHTML(pages[4], `<h2>Creatives / Layouts</h2>${imageSlotPreview(d.creativesImages, 'Add creative images in the form')}`),
+    templatePageHTML(pages[5], `<h2>Contact Us</h2><p>${esc(c.viberName || '—')}<br>${esc(c.viberNumber || '—')}</p><p>${esc(c.email || '—')}<br>${esc(c.website || '—')}<br>${esc(c.location || '—')}</p>`),
+  ].join('\n');
+}
+
 function pagesHTML(d) {
+  if (d.template && state.templatePages.length) return templatePagesHTML(d);
   return [
     pageCover(d),
     pageSummary(d),
@@ -787,23 +839,101 @@ function pagesHTML(d) {
 }
 
 function renderPreview() {
-  const wrap = $('#previewPages');
-  wrap.innerHTML = pagesHTML(state.current);
+  const wrap = $('#previewPages');   wrap.innerHTML = pagesHTML(state.current);      $$('.page', wrap).forEach(page => {
+    const frame = document.createElement('div');
+    frame.className = 'preview-page-frame';
+    page.parentNode.insertBefore(frame, page);
+    frame.appendChild(page);
+  });
+  
   applyZoom();
 }
+
+async function removePdfTextFromCanvas(page, viewport, canvas) {
+  const textContent = await page.getTextContent();
+  const textBoxes = [];
+
+  for (const item of textContent.items) {
+    if (!item.str || !item.str.trim()) continue;
+    const start = viewport.convertToViewportPoint(item.transform[4], item.transform[5]);
+    const end = viewport.convertToViewportPoint(item.transform[4] + item.width, item.transform[5]);
+    const textHeight = Math.max(4, Math.abs(item.transform[3] * viewport.scale));
+    textBoxes.push({
+      left: Math.max(0, Math.floor(Math.min(start[0], end[0]) - 2)),
+      right: Math.min(canvas.width - 1, Math.ceil(Math.max(start[0], end[0]) + 2)),
+      top: Math.max(0, Math.floor(Math.min(start[1], end[1]) - textHeight * 0.25 - 2)),
+      bottom: Math.min(canvas.height - 1, Math.ceil(Math.max(start[1], end[1]) + textHeight * 0.45 + 2)),
+    });
+  }
+
+  if (!textBoxes.length) return;
+  const context = canvas.getContext('2d');
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  const pixels = image.data;
+
+  for (const box of textBoxes) {
+    for (let y = box.top; y <= box.bottom; y++) {
+      const leftX = Math.max(0, box.left - 3);
+      const rightX = Math.min(canvas.width - 1, box.right + 3);
+      const leftIndex = (y * canvas.width + leftX) * 4;
+      const rightIndex = (y * canvas.width + rightX) * 4;
+      for (let x = box.left; x <= box.right; x++) {
+        const ratio = box.right === box.left ? 0 : (x - box.left) / (box.right - box.left);
+        const index = (y * canvas.width + x) * 4;
+        pixels[index] = pixels[leftIndex] * (1 - ratio) + pixels[rightIndex] * ratio;
+        pixels[index + 1] = pixels[leftIndex + 1] * (1 - ratio) + pixels[rightIndex + 1] * ratio;
+        pixels[index + 2] = pixels[leftIndex + 2] * (1 - ratio) + pixels[rightIndex + 2] * ratio;
+        pixels[index + 3] = 255;
+      }
+    }
+  }
+  context.putImageData(image, 0, 0);
+}
+
+async function renderPdfTemplate(filePath) {
+  if (!window.pdfjsLib) throw new Error('PDF reader is still loading');
+  const pdf = await window.pdfjsLib.getDocument(filePath).promise;
+  const firstPage = await pdf.getPage(1);
+  const firstViewport = firstPage.getViewport({ scale: 1 });
+  state.templatePageSize = firstViewport.width >= firstViewport.height
+    ? { width: 1123, height: 794 }
+    : { width: 794, height: 1123 };
+  const pages = [];
+  for (let pageNumber = 1; pageNumber <= Math.min(pdf.numPages, 6); pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const scale = Math.min(1.5, state.templatePageSize.width / baseViewport.width);
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    await removePdfTextFromCanvas(page, viewport, canvas);
+    pages.push(canvas.toDataURL('image/jpeg', 0.9));
+  }
+  state.templatePages = pages;
+}
+
+async function selectPdfTemplate(template) {
+  try {
+    await renderPdfTemplate(template.file_path);
+    state.current.template = { name: template.template_name, filePath: template.file_path };
+    persistCurrent();
+    closeTemplateModal();
+    renderAll();
+    toast(`${template.template_name} is now the report template`);
+  } catch (error) {
+    console.error('Template loading failed:', error);
+    alert('The PDF template could not be loaded. Check that it is a readable PDF.');
+  }
+}
+
 function applyZoom() {
   $('#zoomLevel').textContent = Math.round(state.zoom * 100) + '%';
-  $$('#previewPages > .page').forEach(page => {
-    if (!page.parentElement.classList.contains('preview-page-frame')) {
-      const frame = document.createElement('div');
-      frame.className = 'preview-page-frame';
-      page.parentNode.insertBefore(frame, page);
-      frame.appendChild(page);
-    }
-    const frame = page.parentElement;
-    frame.style.width = (794 * state.zoom) + 'px';
-    frame.style.height = (1123 * state.zoom) + 'px';
-    frame.style.overflow = 'hidden';
+  const pageSize = state.current.template ? state.templatePageSize : { width: 794, height: 1123 };
+  
+  $$('.preview-page-frame').forEach(frame => {     frame.style.width = (pageSize.width * state.zoom) + 'px';     frame.style.height = (pageSize.height * state.zoom) + 'px';     frame.style.overflow = 'hidden';   });$$
+('#previewPages .page').forEach(page => {
     page.style.transform = `scale(${state.zoom})`;
     page.style.transformOrigin = 'top left';
   });
@@ -876,15 +1006,96 @@ function duplicateLast() {
   renderAll();
   toast('Duplicated last report — month-specific content cleared');
 }
-function saveDraft() {
+async function saveDraft() {
   const idx = state.reports.findIndex(r => r.id === state.current.id);
   const snapshot = JSON.parse(JSON.stringify(state.current));
   snapshot.updatedAt = new Date().toISOString();
+  
+  // 1. Keep your local storage save (this acts as an instant local backup)
   if (idx >= 0) state.reports[idx] = snapshot; else state.reports.push(snapshot);
   const ok = saveJSON(LS_KEYS.reports, state.reports);
   renderSidenav();
-  if (ok) toast('Draft saved ✓');
+
+  // 2. Add this part to send the data to your PHP file via fetch()
+  try {
+    const response = await fetch('save-report.php', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(snapshot) // Packages your entire report object
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      toast('Draft saved locally & synced to PHP server ✓');
+    } else {
+      toast('Saved locally, but server error: ' + result.message);
+    }
+  } catch (error) {
+    console.error('Server sync failed:', error);
+    toast('Draft saved locally (Server offline)');
+  }
 }
+
+async function loadReportsFromServer() {
+  try {
+    const response = await fetch('get-reports.php');
+    const result = await response.json();
+
+    if (result.success && Array.isArray(result.reports)) {
+      state.reports = result.reports;
+      
+      // Fixed: Properly assign state.current if it isn't set yet and reports exist
+      if (state.reports.length > 0 && (!state.current || !state.reports.some(r => r.id === state.current.id))) {
+        state.current = state.reports[0]; 
+      }
+      
+      renderSidenav();
+      console.log('Reports loaded successfully from MySQL database.');
+    } else {
+      console.warn('Failed to load reports from server, falling back to localStorage.');
+      loadFromLocalStorageFallback();
+    }
+  } catch (error) {
+    console.error('Server connection error during load:', error);
+    loadFromLocalStorageFallback();
+  }
+}
+
+async function init() {
+  // Call the server loader first
+  await loadReportsFromServer();
+
+  if (state.current.template?.filePath) {
+    try {
+      await renderPdfTemplate(state.current.template.filePath);
+    } catch (error) {
+      console.warn('Saved PDF template could not be restored:', error);
+      state.current.template = null;
+    }
+  }
+
+  if (!state.reports.some(r => r.id === state.current.id)) {
+    if (!state.current.summary.contractorName && !state.current.contact.email) {
+      applyDefaultsToNewReport(state.current);
+    }
+  }
+  
+  wireChrome();
+  renderAll();
+}
+
+// Fallback helper in case the local server is offline
+function loadFromLocalStorageFallback() {
+  const saved = loadJSON(LS_KEYS.reports);
+  if (Array.isArray(saved)) {
+    state.reports = saved;
+  }
+  renderSidenav();
+}
+
 function openReport(id) {
   const r = state.reports.find(x => x.id === id);
   if (!r) return;
@@ -913,12 +1124,13 @@ async function exportPDF() {
   const container = buildExportContainer();
   const pages = $$('.page', container);
   const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit: 'px', format: [794, 1123], orientation: 'portrait' });
+  const pageSize = state.current.template ? state.templatePageSize : { width: 794, height: 1123 };
+  const pdf = new jsPDF({ unit: 'px', format: [pageSize.width, pageSize.height], orientation: pageSize.width > pageSize.height ? 'landscape' : 'portrait' });
   for (let i = 0; i < pages.length; i++) {
     const canvas = await html2canvas(pages[i], { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
     const imgData = canvas.toDataURL('image/jpeg', 0.92);
-    if (i > 0) pdf.addPage([794, 1123], 'portrait');
-    pdf.addImage(imgData, 'JPEG', 0, 0, 794, 1123);
+    if (i > 0) pdf.addPage([pageSize.width, pageSize.height], pageSize.width > pageSize.height ? 'landscape' : 'portrait');
+    pdf.addImage(imgData, 'JPEG', 0, 0, pageSize.width, pageSize.height);
   }
   document.body.removeChild(container);
   const name = `Completion Report ${state.current.cover.month || ''} ${state.current.cover.year || ''}`.trim().replace(/\s+/g, ' ') + '.pdf';
@@ -963,6 +1175,7 @@ function wireChrome() {
   $('#btnNewReport').addEventListener('click', newReport);
   $('#btnDuplicate').addEventListener('click', duplicateLast);
   $('#btnSaveDraft').addEventListener('click', saveDraft);
+  $('#btnDefaultTemplate')?.addEventListener('click', useDefaultTemplate);
   $('#btnLoad').addEventListener('click', () => { renderReportListModal(); openModal('#loadModal'); });
   $('#closeLoad').addEventListener('click', () => closeModal('#loadModal'));
   $('#cancelLoad').addEventListener('click', () => closeModal('#loadModal'));
@@ -1001,15 +1214,91 @@ function wireChrome() {
 /* ---------------------------------------------------------------------- */
 /* 15. BOOT                                                                 */
 /* ---------------------------------------------------------------------- */
-function renderAll() { renderSidenav(); renderEditor(); renderPreview(); }
-function init() {
-  if (!state.reports.some(r => r.id === state.current.id)) {
-    // first run: seed agency defaults onto the blank current report if empty
-    if (!state.current.summary.contractorName && !state.current.contact.email) {
-      applyDefaultsToNewReport(state.current);
-    }
-  }
-  wireChrome();
-  renderAll();
+function renderAll() {
+  renderSidenav();
+  renderEditor();
+  renderPreview();
+  const defaultTemplateButton = $('#btnDefaultTemplate');
+  if (defaultTemplateButton) defaultTemplateButton.hidden = !state.current.template;
 }
-document.addEventListener('DOMContentLoaded', init);
+
+function useDefaultTemplate() {
+  state.current.template = null;
+  state.templatePages = [];
+  state.templatePageSize = { width: 794, height: 1123 };
+  persistCurrent();
+  renderAll();
+  toast('Back to the default template');
+}
+
+// --- Template Upload Modal Controls ---
+async function loadCustomTemplates() {
+  try {
+    const res = await fetch('get-templates.php');
+    const result = await res.json();
+    const ul = document.getElementById('templateListUl');
+    if (!ul) return;
+    
+    ul.innerHTML = '';
+    if (result.status === 'success' && result.data && result.data.length > 0) {
+      result.data.forEach(tmpl => {
+        const li = document.createElement('li');
+        li.style.padding = "6px 0";
+        li.style.display = "flex";
+        li.style.justifyContent = "space-between";
+        li.style.alignItems = "center";
+        const isPdf = /\.pdf$/i.test(tmpl.file_path || '');
+        li.innerHTML = `<span>${esc(tmpl.template_name)}</span><span>${isPdf ? `<button type="button" class="btn btn-xs btn-primary" data-template-id="${tmpl.id}">Use as template</button> ` : ''}<a href="${esc(tmpl.file_path)}" target="_blank" rel="noopener" class="btn btn-xs btn-ghost">View</a></span>`;
+        ul.appendChild(li);
+        if (isPdf) li.querySelector('[data-template-id]').addEventListener('click', () => selectPdfTemplate(tmpl));
+      });
+    } else {
+      ul.innerHTML = '<li class="muted small" style="padding: 6px 0;">No custom templates uploaded yet.</li>';
+    }
+  } catch (err) {
+    console.error('Failed to load templates:', err);
+  }
+}
+
+function openTemplateModal() {
+  const modal = document.getElementById('templateModal');
+  if (modal) {
+    modal.classList.add('open');
+    loadCustomTemplates(); // <--- Loads the list instantly when opened
+  }
+}
+
+function closeTemplateModal() {
+  const modal = document.getElementById('templateModal');
+  const form = document.getElementById('templateUploadForm');
+  if (modal) modal.classList.remove('open');
+  if (form) form.reset();
+}
+
+// --- Submit Template to PHP Backend via Fetch ---
+async function handleTemplateUpload(e) {
+  e.preventDefault();
+  const form = document.getElementById('templateUploadForm');
+  const formData = new FormData(form);
+
+  try {
+    const response = await fetch('upload-template.php', {
+      method: 'POST',
+      body: formData
+    });
+    
+    const result = await response.json();
+    
+    if (result.status === 'success') {
+      alert('Template uploaded successfully!');
+      closeTemplateModal();
+    } else {
+      alert('Upload failed: ' + (result.message || 'Unknown error'));
+    }
+  } catch (err) {
+    console.error('Error uploading template:', err);
+    alert('Failed to connect to the server. Make sure XAMPP Apache is running.');
+  }
+}
+
+init();

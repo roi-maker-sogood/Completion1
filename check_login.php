@@ -45,7 +45,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $_SESSION["user_email"] = $user["email"];
 
                 // Go to your existing dashboard
-                header("Location:Dashboard/index.html");
+                header("Location:Dashboard/index.php");
                 exit;
 
             } else {

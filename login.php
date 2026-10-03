@@ -185,10 +185,7 @@
 
 
             </form>
-
-
             <!-- FOOTER -->
-
             <div class="auth-footer">
 
                 Don't have an account?
