@@ -332,9 +332,7 @@ if (!copy($uploadPath, $copyPath)) {
 
 
     <div class="success-icon">
-
         ✓
-
     </div>
 
     <h1>
