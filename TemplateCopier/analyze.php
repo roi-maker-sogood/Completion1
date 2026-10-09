@@ -1,5 +1,8 @@
 <?php
 
+ini_set('max_execution_time', '300');
+set_time_limit(300);
+
 require_once __DIR__ . '/vendor/autoload.php';
 use Smalot\PdfParser\Parser;
 
@@ -151,6 +154,15 @@ PROMPT;
         $apiMessage = is_array($response)
             ? ($response['error']['message'] ?? 'Gemini returned an error.')
             : 'Gemini returned an invalid error response.';
+
+        if ($status === 401) {
+            throw new RuntimeException('Gemini API error (401): The API key is missing, invalid, expired, or not enabled for Gemini. Recreate it in Google AI Studio, update the Apache GEMINI_API_KEY value, and restart Apache.');
+        }
+
+        if ($status === 400 && stripos($apiMessage, 'model') !== false) {
+            throw new RuntimeException('Gemini API error (400): The configured model name is invalid. Use a real Gemini model such as gemini-2.5-flash or gemini-2.5-flash-lite, then restart Apache.');
+        }
+
         throw new RuntimeException('Gemini API error (' . $status . '): ' . $apiMessage);
     }
 
@@ -280,7 +292,7 @@ $apiKey = trim((string) getenv('GEMINI_API_KEY'));
 $model = trim((string) (getenv('GEMINI_MODEL') ?: 'gemini-3.8-flash'));
 $configuredFallbackModel = getenv('GEMINI_FALLBACK_MODEL');
 $fallbackModel = $configuredFallbackModel === false
-    ? 'gemini-3.5-flash-lite'
+    ? 'gemini-3.8-flash'
     : trim((string) $configuredFallbackModel);
 if ($apiKey === '') {
     failRequest('Set the GEMINI_API_KEY environment variable for Apache, then restart Apache and retry.', 503);
